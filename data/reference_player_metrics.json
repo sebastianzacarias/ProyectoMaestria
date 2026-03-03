@@ -1,0 +1,6 @@
+{
+    "serve": {"avg_rmse": 0.12},
+    "forehand": {"avg_rmse": 0.09},
+    "backhand": {"avg_rmse": 0.11},
+    "smash": {"avg_rmse": 0.08}
+}
