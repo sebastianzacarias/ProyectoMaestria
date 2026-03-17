@@ -37,6 +37,10 @@ venv.bak/
 *.swp
 *.swo
 
+# Model weights
+*.pt
+yolov8n.pt
+
 # Project specific
 data/raw/
 data/processed/
