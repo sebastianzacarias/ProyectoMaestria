@@ -15,6 +15,7 @@ DATA_PROCESSED_DIR = os.path.join(BASE_DIR, "data", "processed")
 # Asegurarse de que los directorios existan en la raíz
 os.makedirs(DATA_RAW_DIR, exist_ok=True)
 os.makedirs(DATA_PROCESSED_DIR, exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "data", "graphs"), exist_ok=True)
 
 # Inicializamos el procesador de video
 # Nota: La carga del modelo puede tomar tiempo al inicio
@@ -46,6 +47,21 @@ async def download_video(task_id: str):
         return FileResponse(output_path, media_type="video/mp4", filename=f"processed_{task_id}.mp4")
     
     return {"error": "Archivo de video no encontrado"}
+
+@app.get("/download-report/{task_id}")
+async def download_report(task_id: str):
+    if task_id not in tasks_status:
+        return {"error": "Tarea no encontrada"}
+    
+    task = tasks_status[task_id]
+    if task["status"] != "completed":
+        return {"error": "El reporte aún no está listo o la tarea falló"}
+    
+    report_path = task["results"].get("report_image")
+    if report_path and os.path.exists(report_path):
+        return FileResponse(report_path, media_type="image/png", filename=f"report_{task_id}.png")
+    
+    return {"error": "Archivo de reporte no encontrado"}
 
 @app.post("/upload-video/")
 async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -81,7 +97,7 @@ async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = Fil
 def process_video_task(input_path: str, output_path: str, task_id: str):
     # Aquí es donde llamamos al servicio de procesamiento real
     try:
-        results = video_processor.process_video(input_path, output_path)
+        results = video_processor.process_video(input_path, output_path, task_id)
         # Guardar resultados en el diccionario de estados
         tasks_status[task_id] = {
             "status": "completed",
