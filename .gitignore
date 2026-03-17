@@ -44,9 +44,11 @@ yolov8n.pt
 # Project specific
 data/raw/
 data/processed/
+data/graphs/
 *.mp4
 *.avi
 *.mov
+*.png
 outputs/
 charts/
 temp/
