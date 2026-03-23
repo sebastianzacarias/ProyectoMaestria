@@ -236,20 +236,105 @@ class VideoProcessor:
                 "pose_detected": False,
                 "elbow_angle": 0.0,
                 "knee_angle": 0.0,
-                "rmse_vs_ref": 0.0
+                "rmse_vs_ref": 0.0,
+                "prob_jugador": 0.0,
+                "prob_oponente": 0.0,
+                "probs_raquetas": [],
+                "probs_bolas": []
             }
 
             if detections and len(detections) > 0:
                 current_frame_metrics["objects"] = len(detections[0].boxes)
+                
+                # Filtrar personas, raquetas y bolas
+                persons = []
+                rackets = []
+                balls = []
+                
                 for box in detections[0].boxes:
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
                     cls = int(box.cls[0])
                     conf = float(box.conf[0])
-                    if cls in [0, 32, 38]:
-                        label = f"{self.detector.model.names[cls]} {conf:.2f}"
-                        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                        cv2.putText(frame, label, (int(x1), int(y1) - 10), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    if conf < 0.3: continue # Umbral mínimo
+                    
+                    if cls == 0: # Person
+                        persons.append(box)
+                    elif cls == 38: # Tennis racket
+                        rackets.append(box)
+                    elif cls == 32: # Sports ball
+                        balls.append(box)
+
+                # Seleccionar solo los dos jugadores más probables (por confianza y/o tamaño)
+                # Ordenar por confianza para simplicidad inicial
+                persons = sorted(persons, key=lambda b: float(b.conf[0]), reverse=True)[:2]
+                
+                # Clasificar entre 'Jugador' y 'Oponente' basándose en la posición Y y restricciones de altura
+                # 'Jugador' (pies) debe estar > 50% de la altura (mitad inferior)
+                # 'Oponente' (cabeza) debe estar < 50% de la altura (mitad superior)
+                
+                p_main, p_opp = None, None
+                
+                if len(persons) == 2:
+                    y_pos_0 = float(persons[0].xyxy[0][3]) # y2 de la primera persona
+                    y_pos_1 = float(persons[1].xyxy[0][3]) # y2 de la segunda persona
+                    
+                    if y_pos_0 > y_pos_1:
+                        cand_main, cand_opp = persons[0], persons[1]
+                    else:
+                        cand_main, cand_opp = persons[1], persons[0]
+                    
+                    # Aplicar restricciones
+                    # cand_main (Jugador): y2 (pies) debe ser > height * 0.5
+                    if float(cand_main.xyxy[0][3]) > height * 0.5:
+                        p_main = cand_main
+                    
+                    # cand_opp (Oponente): y1 (cabeza) debe ser < height * 0.5
+                    if float(cand_opp.xyxy[0][1]) < height * 0.5:
+                        p_opp = cand_opp
+                
+                elif len(persons) == 1:
+                    # Si solo hay uno, puede ser Jugador u Oponente según su posición
+                    p = persons[0]
+                    y1, y2 = float(p.xyxy[0][1]), float(p.xyxy[0][3])
+                    
+                    if y2 > height * 0.5:
+                        p_main = p
+                    elif y1 < height * 0.5:
+                        p_opp = p
+
+                # Dibujar y guardar métricas si se identificaron correctamente
+                if p_main:
+                    current_frame_metrics["prob_jugador"] = float(p_main.conf[0])
+                    x1, y1, x2, y2 = p_main.xyxy[0].tolist()
+                    conf = float(p_main.conf[0])
+                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                    cv2.putText(frame, f"Jugador {conf:.2f}", (int(x1), int(y1) - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                
+                if p_opp:
+                    current_frame_metrics["prob_oponente"] = float(p_opp.conf[0])
+                    x1, y1, x2, y2 = p_opp.xyxy[0].tolist()
+                    conf = float(p_opp.conf[0])
+                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                    cv2.putText(frame, f"Oponente {conf:.2f}", (int(x1), int(y1) - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+                # Dibujar Raquetas
+                for r in rackets:
+                    conf = float(r.conf[0])
+                    current_frame_metrics["probs_raquetas"].append(conf)
+                    x1, y1, x2, y2 = r.xyxy[0].tolist()
+                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 255, 0), 2)
+                    cv2.putText(frame, f"Raqueta {conf:.2f}", (int(x1), int(y1) - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+
+                # Dibujar Bolas
+                for b in balls:
+                    conf = float(b.conf[0])
+                    current_frame_metrics["probs_bolas"].append(conf)
+                    x1, y1, x2, y2 = b.xyxy[0].tolist()
+                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+                    cv2.putText(frame, f"bola {conf:.2f}", (int(x1), int(y1) - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
             if pose_results and pose_results.pose_landmarks:
                 current_frame_metrics["pose_detected"] = True
