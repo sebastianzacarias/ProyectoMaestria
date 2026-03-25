@@ -15,17 +15,15 @@ plt.switch_backend('Agg')
 import os
 
 class ObjectDetectionService:
-    def __init__(self, model_name="yolov8n.pt"):
-        # Usamos YOLOv8 nano para eficiencia en el MVP
+    def __init__(self, model_name="yolo11n.pt"):
+        # Usamos YOLO11 nano para eficiencia en el MVP
         # El modelo se descargará automáticamente la primera vez
         self.model = YOLO(model_name)
     
     def detect_objects(self, frame):
-        # Clases de interés en COCO (yolov8 pre-entrenado):
-        # 0: person, 32: tie (incorrecto), 34: frisbee, 36: skateboard, 
-        # 37: surfboard, 38: tennis racket, 39: bottle, 40: wine glass, 
-        # 41: cup, 42: fork, 43: knife, 44: spoon, 45: bowl, 
-        # 32: sports ball (Pelota de tenis suele ser esta)
+        # Clases de interés en COCO (yolo11 pre-entrenado):
+        # 0: person, 32: sports ball (Pelota de tenis suele ser esta)
+        # 38: tennis racket
         results = self.model(frame, verbose=False)
         return results
 
@@ -74,6 +72,42 @@ class ShotClassificationService:
         # Para esta versión, usaremos una lógica heurística basada en la trayectoria de los keypoints
         pass
 
+    def classify_shot_frame(self, pose_history):
+        """
+        Analiza el historial de pose reciente para clasificar el movimiento en el frame actual.
+        Devuelve (Categoría, Probabilidad)
+        """
+        if len(pose_history) < 5:
+            return "Iniciando...", 0.5
+        
+        # Tomamos los últimos frames para analizar el movimiento
+        # Usamos landmarks normalizados de MediaPipe
+        hand_y = [p.get('RIGHT_WRIST', {}).get('y', 1.0) for p in pose_history[-10:]]
+        head_y = [p.get('NOSE', {}).get('y', 0.0) for p in pose_history[-10:]]
+        hand_x = [p.get('RIGHT_WRIST', {}).get('x', 0.5) for p in pose_history[-10:]]
+        
+        # Lógica heurística con "probabilidades" simuladas basadas en la intensidad del movimiento
+        
+        # 1. Saque (Mano por encima de la cabeza)
+        if min(hand_y) < min(head_y) - 0.05:
+            # Cuanto más arriba esté la mano respecto a la cabeza, mayor probabilidad
+            prob = min(1.0, 0.7 + (min(head_y) - min(hand_y)) * 2)
+            return "Saque", prob
+             
+        # 2. Golpe (Movimiento horizontal rápido de la muñeca)
+        delta_x = max(hand_x) - min(hand_x)
+        if delta_x > 0.15:
+            prob = min(1.0, 0.6 + delta_x)
+            return "Golpe", prob
+
+        # 3. Desplazamiento (Si el Centro de Masa se mueve pero no hay golpe claro)
+        # Nota: Aquí podríamos recibir el CoM, pero por ahora usamos una simplificación
+        # Si no es ninguna de las anteriores y hay un mínimo de movimiento
+        if delta_x > 0.05:
+            return "Desplazamiento", 0.7
+            
+        return "Preparación", 0.6
+
     def classify_shot(self, pose_history):
         """
         pose_history: lista de diccionarios con landmarks por frame
@@ -103,13 +137,6 @@ class ShotClassificationService:
 
 class MetricsService:
     @staticmethod
-    def calculate_rmse(player_pose, reference_pose):
-        """Calcula el RMSE entre dos poses (keypoints normalizados)."""
-        # player_pose y reference_pose son arrays de (N, 2) o (N, 3)
-        diff = np.array(player_pose) - np.array(reference_pose)
-        return np.sqrt(np.mean(np.square(diff)))
-
-    @staticmethod
     def calculate_com(landmarks):
         """Estima el centro de masa (CoM) promediando cadera y hombros."""
         # Media de hombros (11, 12) y caderas (23, 24)
@@ -131,20 +158,23 @@ class MetricsService:
 
         generated_files = []
         metrics_to_plot = {
-            "elbow_angle": ("Ángulo del Codo", "Grados"),
-            "knee_angle": ("Ángulo de la Rodilla", "Grados"),
-            "rmse_vs_ref": ("Desviación (RMSE)", "Error"),
-            "com_stability": ("Estabilidad del CoM (Variación)", "Desplazamiento"),
-            "wrist_speed": ("Velocidad de la Muñeca", "Píxeles/Frame (Relativo)"),
-            "base_width": ("Ancho de Base (Pies)", "Distancia Normalizada")
+            "elbow_angle": ("Ángulo del Codo", "Grados", (70, 110)),
+            "knee_angle": ("Ángulo de la Rodilla", "Grados", (90, 140)),
+            "com_stability": ("Estabilidad del CoM (Variación)", "Desplazamiento", (0.0, 0.02)),
+            "wrist_speed": ("Velocidad de la Muñeca", "Píxeles/Frame (Relativo)", (0.0, 0.05)),
+            "base_width": ("Ancho de Base (Pies)", "Distancia Normalizada", (0.4, 0.7))
         }
 
-        for metric, (title, ylabel) in metrics_to_plot.items():
+        for metric, (title, ylabel, ref_range) in metrics_to_plot.items():
             if metric not in df_pose.columns:
                 continue
             
             plt.figure(figsize=(8, 4))
-            plt.plot(df_pose['time'], df_pose[metric], label=title)
+            
+            # Dibujar la banda de referencia de jugadores top
+            plt.axhspan(ref_range[0], ref_range[1], color='green', alpha=0.2, label='Rango Top Player')
+            
+            plt.plot(df_pose['time'], df_pose[metric], label=f"{title} (Jugador)", color='blue', linewidth=2)
             plt.title(f"{title} - {task_id}")
             plt.xlabel("Tiempo (s)")
             plt.ylabel(ylabel)
@@ -158,42 +188,6 @@ class MetricsService:
             generated_files.append(filepath)
             
         return generated_files
-
-    @staticmethod
-    def generate_report(frames_data, output_dir, task_id):
-        """Genera gráficas de métricas y las guarda como imagen."""
-        if not frames_data:
-            return None
-        
-        df = pd.DataFrame(frames_data)
-        # Filtrar solo frames donde se detectó pose
-        df_pose = df[df['pose_detected']].copy()
-        
-        if df_pose.empty:
-            return None
-        
-        plt.figure(figsize=(10, 6))
-        
-        # Gráfica de Ángulo del Codo
-        plt.subplot(2, 1, 1)
-        plt.plot(df_pose['time'], df_pose['elbow_angle'], label='Ángulo Codo (deg)', color='blue')
-        plt.title(f'Análisis Técnico - Tarea {task_id}')
-        plt.ylabel('Grados')
-        plt.legend()
-        
-        # Gráfica de RMSE
-        plt.subplot(2, 1, 2)
-        plt.plot(df_pose['time'], df_pose['rmse_vs_ref'], label='Desviación vs Referencia (RMSE)', color='red')
-        plt.xlabel('Tiempo (s)')
-        plt.ylabel('Error')
-        plt.legend()
-        
-        plt.tight_layout()
-        report_path = os.path.join(output_dir, f"{task_id}_report.png")
-        plt.savefig(report_path, dpi=300)
-        plt.close()
-        
-        return report_path
 
 class VideoProcessor:
     def __init__(self):
@@ -218,10 +212,6 @@ class VideoProcessor:
         frame_count = 0
         pose_history = []
         
-        # Pose de referencia "ideal" simplificada (ej. para un Serve o un Drive)
-        # En un sistema real, esto se cargaría de una base de datos de pro-players
-        reference_pose_mock = np.zeros((33, 2)) 
-        
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -236,7 +226,6 @@ class VideoProcessor:
                 "pose_detected": False,
                 "elbow_angle": 0.0,
                 "knee_angle": 0.0,
-                "rmse_vs_ref": 0.0,
                 "prob_jugador": 0.0,
                 "prob_oponente": 0.0,
                 "probs_raquetas": [],
@@ -366,12 +355,7 @@ class VideoProcessor:
                 }
                 pose_history.append(current_pose_dict)
                 
-                # 4. Calcular RMSE vs Referencia Mock
-                player_points = np.array([[l.x, l.y] for l in landmarks])
-                rmse = self.metrics.calculate_rmse(player_points, reference_pose_mock)
-                current_frame_metrics["rmse_vs_ref"] = float(rmse)
-
-                # 5. Nuevas métricas avanzadas
+                # 4. Nuevas métricas avanzadas
                 # Centro de Masa
                 com = self.metrics.calculate_com(landmarks)
                 current_frame_metrics["com_x"] = float(com[0])
@@ -407,8 +391,17 @@ class VideoProcessor:
                 # Mostrar métricas en tiempo real en el video
                 cv2.putText(frame, f"Codo: {int(elbow_angle)} deg", (10, 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(frame, f"RMSE: {rmse:.4f}", (10, 60), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+                # 5. Clasificación de movimiento frame-a-frame
+                movement, move_prob = self.classifier.classify_shot_frame(pose_history)
+                current_frame_metrics["movement"] = movement
+                current_frame_metrics["movement_prob"] = move_prob
+                
+                # Etiqueta adicional para el jugador
+                if p_main:
+                    x1, y1, x2, y2 = p_main.xyxy[0].tolist()
+                    cv2.putText(frame, f"{movement} {move_prob:.2f}", (int(x1), int(y2) + 20), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             out.write(frame)
             frames_data.append(current_frame_metrics)
@@ -422,7 +415,6 @@ class VideoProcessor:
         
         # Generar Reporte Visual
         output_dir = os.path.dirname(output_path)
-        report_file = self.metrics.generate_report(frames_data, output_dir, task_id)
         
         # Generar Gráficas Individuales
         graphs_dir = os.path.join(os.path.dirname(os.path.dirname(output_path)), "graphs")
@@ -431,21 +423,17 @@ class VideoProcessor:
         
         # Preparar métricas finales asegurando que sean JSON compliant
         avg_elbow = np.mean([f["elbow_angle"] for f in frames_data if f["pose_detected"]]) if any(f["pose_detected"] for f in frames_data) else 0.0
-        avg_rmse = np.mean([f["rmse_vs_ref"] for f in frames_data if f["pose_detected"]]) if any(f["pose_detected"] for f in frames_data) else 0.0
         
         # Manejar posibles NaNs de numpy
         if np.isnan(avg_elbow): avg_elbow = 0.0
-        if np.isnan(avg_rmse): avg_rmse = 0.0
 
         return {
             "total_frames": len(frames_data),
             "output_video": output_path,
-            "report_image": report_file,
             "individual_graphs": individual_graphs,
             "detected_shot": final_shot,
             "metrics_summary": {
-                "avg_elbow_angle": float(avg_elbow),
-                "avg_rmse": float(avg_rmse)
+                "avg_elbow_angle": float(avg_elbow)
             },
             "summary": "Análisis técnico completado"
         }
