@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from app.services.video_processor import VideoProcessor
 from app.services.llm_service import OllamaLLMService
 import os
@@ -20,6 +21,7 @@ app = FastAPI(title="Tennis AI MVP API")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_RAW_DIR = os.path.join(BASE_DIR, "data", "raw")
 DATA_PROCESSED_DIR = os.path.join(BASE_DIR, "data", "processed")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # Asegurarse de que los directorios existan en la raíz
 os.makedirs(DATA_RAW_DIR, exist_ok=True)
@@ -39,9 +41,40 @@ except Exception as e:
 # Diccionario global para simular persistencia de estados de tareas (en un sistema real usaríamos Redis o DB)
 tasks_status = {}
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to Tennis AI MVP API"}
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    """Sirve el frontend HTML."""
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    with open(index_path, encoding="utf-8") as f:
+        return f.read()
+
+@app.get("/graphs/{task_id}", response_class=JSONResponse)
+async def list_graphs(task_id: str):
+    """Lista las URLs de las gráficas individuales de una tarea completada."""
+    if task_id not in tasks_status:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = tasks_status[task_id]
+    if task["status"] != "completed":
+        raise HTTPException(status_code=400, detail="La tarea aún no está completada")
+    graphs = task["results"].get("individual_graphs", [])
+    urls = [f"/graphs/{task_id}/{i}" for i in range(len(graphs))]
+    return {"graphs": urls, "count": len(urls)}
+
+@app.get("/graphs/{task_id}/{index}")
+async def get_graph(task_id: str, index: int):
+    """Sirve una gráfica individual por índice."""
+    if task_id not in tasks_status:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = tasks_status[task_id]
+    if task["status"] != "completed":
+        raise HTTPException(status_code=400, detail="La tarea aún no está completada")
+    graphs = task["results"].get("individual_graphs", [])
+    if index < 0 or index >= len(graphs):
+        raise HTTPException(status_code=404, detail=f"Gráfica {index} no encontrada")
+    graph_path = graphs[index]
+    if not os.path.exists(graph_path):
+        raise HTTPException(status_code=404, detail="Archivo de gráfica no encontrado en disco")
+    return FileResponse(graph_path, media_type="image/png")
 
 @app.get("/task-status/{task_id}")
 async def get_task_status(task_id: str):
@@ -129,7 +162,7 @@ async def check_ollama_status():
     status = llm_service.check_connection()
     return JSONResponse(content=status)
 
-@app.post("/upload-video/")
+@app.post("/upload-video")
 async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Sube un video para su procesamiento. El análisis se ejecuta en background.
@@ -201,6 +234,11 @@ def process_video_task(input_path: str, output_path: str, task_id: str):
             "status": "failed",
             "error": f"Error al procesar el video: {str(e)}"
         }
+
+# Montar archivos estáticos DESPUÉS de todas las rutas.
+# En Starlette, un mount registrado antes de las rutas puede
+# interferir con el routing y provocar 404 en los endpoints de la API.
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 if __name__ == "__main__":
     import uvicorn

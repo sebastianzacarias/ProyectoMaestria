@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tennis AI Analyzer</title>
+  <style>
+    :root {
+      --green:   #2e7d32;
+      --green-l: #43a047;
+      --green-xl:#e8f5e9;
+      --yellow:  #f9a825;
+      --dark:    #1a1a2e;
+      --surface: #ffffff;
+      --surface2:#f5f5f5;
+      --text:    #212121;
+      --text-s:  #616161;
+      --border:  #e0e0e0;
+      --radius:  12px;
+      --shadow:  0 2px 12px rgba(0,0,0,.10);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--surface2);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      background: var(--dark);
+      color: #fff;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    }
+    header .logo { font-size: 2rem; }
+    header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: .5px; }
+    header span { font-size: .85rem; color: #aaa; margin-left: auto; }
+
+    /* ── Main layout ─────────────────────────────────────────── */
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 16px; }
+
+    /* ── Upload card ─────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px;
+      margin-bottom: 28px;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 20px; color: var(--green); }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .drop-zone.drag-over { border-color: var(--green-l); background: var(--green-xl); }
+    .drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-zone .icon { font-size: 3rem; display: block; margin-bottom: 12px; }
+    .drop-zone p { color: var(--text-s); font-size: .95rem; }
+    .drop-zone p strong { color: var(--green-l); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 22px; border: none; border-radius: 8px;
+      font-size: .95rem; font-weight: 600; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary { background: var(--green); color: #fff; }
+    .btn-primary:hover { background: var(--green-l); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    #file-name { font-size: .88rem; color: var(--text-s); margin-top: 10px; }
+    #upload-btn { margin-top: 18px; }
+
+    /* ── Progress ────────────────────────────────────────────── */
+    #progress-section { display: none; }
+    .progress-bar-wrap {
+      background: var(--border); border-radius: 99px; height: 8px; overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; background: var(--green-l);
+      border-radius: 99px;
+      transition: width .4s;
+      width: 0%;
+    }
+    .progress-bar.indeterminate {
+      width: 40%;
+      animation: slide 1.2s infinite ease-in-out;
+    }
+    @keyframes slide {
+      0%   { margin-left: -40%; }
+      100% { margin-left: 100%; }
+    }
+    #progress-msg { margin-top: 12px; font-size: .9rem; color: var(--text-s); }
+    .status-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 99px;
+      font-size: .8rem; font-weight: 600; margin-left: 10px;
+    }
+    .badge-processing { background: #fff3e0; color: #e65100; }
+    .badge-done       { background: var(--green-xl); color: var(--green); }
+    .badge-error      { background: #ffebee; color: #c62828; }
+
+    /* ── Results ─────────────────────────────────────────────── */
+    #results-section { display: none; }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 720px) { .results-grid { grid-template-columns: 1fr; } }
+
+    /* Video */
+    .video-wrap video {
+      width: 100%; border-radius: 8px;
+      background: #000;
+      max-height: 420px;
+      object-fit: contain;
+    }
+    .video-wrap .dl-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 10px; font-size: .88rem; color: var(--green-l);
+      text-decoration: none;
+    }
+    .video-wrap .dl-link:hover { text-decoration: underline; }
+
+    /* Metrics */
+    .metrics-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px; margin-top: 4px;
+    }
+    .metric-chip {
+      background: var(--green-xl); border-radius: 8px; padding: 12px;
+      text-align: center;
+    }
+    .metric-chip .val { font-size: 1.5rem; font-weight: 700; color: var(--green); }
+    .metric-chip .lbl { font-size: .75rem; color: var(--text-s); margin-top: 4px; }
+
+    /* Summary */
+    .summary-box {
+      background: var(--surface2); border-radius: 8px;
+      padding: 16px; font-size: .92rem; line-height: 1.7;
+      white-space: pre-wrap; max-height: 380px; overflow-y: auto;
+    }
+    .model-badge {
+      display: inline-block; font-size: .75rem; padding: 2px 8px;
+      background: #e3f2fd; color: #1565c0; border-radius: 99px;
+      margin-left: 8px; font-weight: 600;
+    }
+
+    /* Graphs */
+    #graphs-section { display: none; }
+    .graphs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .graph-card {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+      cursor: pointer; transition: transform .15s, box-shadow .15s;
+    }
+    .graph-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,.14); }
+    .graph-card img { width: 100%; display: block; }
+    .graph-card .graph-title {
+      padding: 10px 14px; font-size: .85rem;
+      font-weight: 600; color: var(--text-s);
+    }
+
+    /* Lightbox */
+    #lightbox {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.85); z-index: 100;
+      align-items: center; justify-content: center;
+      cursor: zoom-out;
+    }
+    #lightbox.open { display: flex; }
+    #lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 28px; right: 28px;
+      background: #323232; color: #fff;
+      padding: 12px 20px; border-radius: 8px;
+      font-size: .9rem; opacity: 0;
+      transition: opacity .3s;
+      pointer-events: none; z-index: 200;
+    }
+    #toast.show { opacity: 1; }
+
+    .sep { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+    .full-width { grid-column: 1 / -1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🎾</span>
+  <h1>Tennis AI Analyzer</h1>
+  <span id="ollama-status-label">Verificando Ollama…</span>
+</header>
+
+<main>
+
+  <!-- ── Upload ─────────────────────────────────────────────── -->
+  <div class="card" id="upload-card">
+    <h2>📤 Subir video de tenis</h2>
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept="video/*,.mp4,.avi,.mov,.mkv" />
+      <span class="icon">🎥</span>
+      <p><strong>Arrastra el video aquí</strong> o haz clic para seleccionar</p>
+      <p style="margin-top:6px;font-size:.8rem;">MP4, AVI, MOV, MKV</p>
+    </div>
+    <div id="file-name"></div>
+    <button class="btn btn-primary" id="upload-btn" disabled>
+      ▶ Analizar video
+    </button>
+  </div>
+
+  <!-- ── Progress ───────────────────────────────────────────── -->
+  <div class="card" id="progress-section">
+    <h2>
+      ⚙️ Procesando
+      <span class="status-badge badge-processing" id="status-badge">En proceso</span>
+    </h2>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar indeterminate" id="progress-bar"></div>
+    </div>
+    <p id="progress-msg">Iniciando análisis…</p>
+  </div>
+
+  <!-- ── Results ────────────────────────────────────────────── -->
+  <div id="results-section">
+
+    <div class="results-grid">
+
+      <!-- Video procesado -->
+      <div class="card">
+        <h2>🎬 Video procesado</h2>
+        <div class="video-wrap">
+          <video id="result-video" controls preload="metadata">
+            Tu navegador no soporta video HTML5.
+          </video>
+          <a id="dl-video" class="dl-link" href="#" download>⬇ Descargar video</a>
+        </div>
+      </div>
+
+      <!-- Métricas + golpe -->
+      <div class="card">
+        <h2>📊 Métricas del análisis</h2>
+        <div class="metrics-grid" id="metrics-grid"></div>
+      </div>
+
+      <!-- Resumen LLM (full width) -->
+      <div class="card full-width">
+        <h2>
+          🤖 Resumen del entrenador AI
+          <span class="model-badge" id="model-badge">llama3.2:3b</span>
+        </h2>
+        <div class="summary-box" id="summary-box">—</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Gráficas ────────────────────────────────────────────── -->
+  <div class="card" id="graphs-section">
+    <h2>📈 Gráficas biomecánicas</h2>
+    <div class="graphs-grid" id="graphs-grid"></div>
+  </div>
+
+</main>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <img id="lightbox-img" src="" alt="Gráfica ampliada" />
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  // ── Utilidades ────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const API = window.location.origin;   // URL base absoluta (evita problemas con URL relativa en WebKit)
+
+  function toast(msg, ms = 3500) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), ms);
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // ── Estado Ollama ─────────────────────────────────────────────
+  async function checkOllamaStatus() {
+    try {
+      const r = await fetch(API + '/ollama-status');
+      const d = await r.json();
+      const label = $('ollama-status-label');
+      if (d.connected) {
+        const models = d.available_models || [];
+        label.textContent = models.length
+          ? 'Ollama: ' + models.join(', ')
+          : 'Ollama conectado';
+        label.style.color = '#81c784';
+      } else {
+        label.textContent = 'Ollama no disponible';
+        label.style.color = '#ffb74d';
+      }
+    } catch (e) {
+      $('ollama-status-label').textContent = 'Sin conexion con Ollama';
+      $('ollama-status-label').style.color = '#ffb74d';
+    }
+  }
+  checkOllamaStatus();
+
+  // ── Drag & drop + file select ─────────────────────────────────
+  const dropZone = $('drop-zone');
+  const fileInput = $('file-input');
+  let selectedFile = null;
+
+  function setFile(file) {
+    if (!file) return;
+    // Validar extensión en el lado del cliente
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['mp4', 'avi', 'mov', 'mkv'].includes(ext)) {
+      toast('Formato no soportado. Usa MP4, AVI, MOV o MKV.');
+      return;
+    }
+    selectedFile = file;
+    $('file-name').textContent = file.name + '  (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+    $('upload-btn').disabled = false;
+  }
+
+  fileInput.addEventListener('change', function () {
+    if (this.files && this.files.length > 0) {
+      setFile(this.files[0]);
+    }
+  });
+
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  // ── Upload & poll ─────────────────────────────────────────────
+  $('upload-btn').addEventListener('click', async function () {
+    if (!selectedFile) return;
+
+    $('upload-btn').disabled = true;
+    $('progress-section').style.display = 'block';
+    $('results-section').style.display = 'none';
+    $('graphs-section').style.display = 'none';
+    $('upload-card').style.opacity = '.5';
+    $('upload-card').style.pointerEvents = 'none';
+
+    setStatus('processing', 'Subiendo video...');
+
+    var taskId = null;
+    try {
+      var form = new FormData();
+      form.append('file', selectedFile, selectedFile.name);
+
+      var uploadUrl = API + '/upload-video';
+      var res = await fetch(uploadUrl, {
+        method: 'POST',
+        body: form
+      });
+
+      if (!res.ok) {
+        var errorText = '';
+        try {
+          var errBody = await res.json();
+          errorText = typeof errBody.detail === 'string'
+            ? errBody.detail
+            : JSON.stringify(errBody.detail);
+        } catch (parseErr) {
+          errorText = 'Error HTTP ' + res.status;
+        }
+        throw new Error(errorText);
+      }
+
+      var data = await res.json();
+      taskId = data.task_id;
+      if (!taskId) throw new Error('No se recibio task_id del servidor');
+      setStatus('processing', 'Tarea creada: ' + taskId.substring(0, 8) + '... analizando video');
+    } catch (e) {
+      console.error('Upload error:', e);
+      setStatus('error', 'Error: ' + e.message);
+      resetUpload();
+      return;
+    }
+
+    // Polling
+    await pollTask(taskId);
+  });
+
+  async function pollTask(taskId) {
+    var msgs = [
+      'Detectando objetos y poses...',
+      'Clasificando movimientos...',
+      'Calculando metricas biomecanicas...',
+      'Generando graficas...',
+      'Generando resumen con IA...',
+    ];
+    var msgIdx = 0;
+
+    while (true) {
+      await sleep(2500);
+      setStatus('processing', msgs[msgIdx % msgs.length]);
+      msgIdx++;
+
+      var data;
+      try {
+        var res = await fetch(API + '/task-status/' + taskId);
+        if (!res.ok) continue;
+        data = await res.json();
+      } catch (e) {
+        continue;
+      }
+
+      if (data.status === 'completed') {
+        setStatus('done', 'Analisis completado');
+        await showResults(taskId);
+        return;
+      }
+      if (data.status === 'failed') {
+        var errMsg = data.error || 'Fallo desconocido';
+        setStatus('error', 'Error: ' + errMsg);
+        resetUpload();
+        return;
+      }
+    }
+  }
+
+  function setStatus(type, msg) {
+    var badge = $('status-badge');
+    badge.className = 'status-badge';
+    if (type === 'processing') {
+      badge.classList.add('badge-processing');
+      badge.textContent = 'Procesando';
+    } else if (type === 'done') {
+      badge.classList.add('badge-done');
+      badge.textContent = 'Completado';
+    } else {
+      badge.classList.add('badge-error');
+      badge.textContent = 'Error';
+    }
+    $('progress-msg').textContent = msg;
+  }
+
+  function resetUpload() {
+    $('upload-card').style.opacity = '1';
+    $('upload-card').style.pointerEvents = 'auto';
+    $('upload-btn').disabled = false;
+  }
+
+  // ── Mostrar resultados ────────────────────────────────────────
+  async function showResults(taskId) {
+    // 1. Resumen + metricas
+    try {
+      var r = await fetch(API + '/summary/' + taskId);
+      var d = await r.json();
+      renderSummary(d);
+    } catch (e) {
+      console.error('Summary error:', e);
+      $('summary-box').textContent = 'No se pudo cargar el resumen.';
+    }
+
+    // 2. Video procesado
+    var videoUrl = API + '/download-video/' + taskId;
+    var videoEl = $('result-video');
+    videoEl.src = videoUrl;
+    $('dl-video').href = videoUrl;
+    $('dl-video').setAttribute('download', 'analisis_' + taskId.substring(0, 8) + '.mp4');
+
+    // 3. Graficas
+    try {
+      var r2 = await fetch(API + '/graphs/' + taskId);
+      var d2 = await r2.json();
+      renderGraphs(taskId, d2.count);
+    } catch (e) {
+      console.error('Graphs error:', e);
+    }
+
+    $('results-section').style.display = 'block';
+    $('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('Analisis completado');
+    resetUpload();
+  }
+
+  function renderSummary(data) {
+    var llm = data.llm_summary || {};
+    var metrics = data.metrics_summary || {};
+
+    // Modelo badge
+    $('model-badge').textContent = llm.model || 'llama3.2:3b';
+
+    // Texto del resumen
+    var text = llm.summary || '(Sin resumen disponible)';
+    $('summary-box').textContent = text;
+
+    // Metricas
+    var shot = data.detected_shot || '--';
+    var elbow = metrics.avg_elbow_angle != null ? metrics.avg_elbow_angle.toFixed(1) : '--';
+    var knee  = metrics.avg_knee_angle != null ? metrics.avg_knee_angle.toFixed(1) : '--';
+    var frames = metrics.frames_with_pose != null ? metrics.frames_with_pose : '--';
+    var genTime = llm.generation_time ? llm.generation_time.toFixed(1) + 's' : '--';
+
+    var chips = [
+      { val: shot,           lbl: 'Golpe detectado' },
+      { val: elbow + '\u00B0',   lbl: 'Angulo de codo (prom.)' },
+      { val: knee + '\u00B0',    lbl: 'Angulo de rodilla (prom.)' },
+      { val: frames,         lbl: 'Frames con pose' },
+      { val: genTime,        lbl: 'Tiempo de analisis IA' },
+    ];
+
+    var html = '';
+    for (var i = 0; i < chips.length; i++) {
+      html += '<div class="metric-chip">'
+        + '<div class="val">' + chips[i].val + '</div>'
+        + '<div class="lbl">' + chips[i].lbl + '</div>'
+        + '</div>';
+    }
+    $('metrics-grid').innerHTML = html;
+  }
+
+  function renderGraphs(taskId, count) {
+    if (!count) return;
+    var grid = $('graphs-grid');
+    var labels = [
+      'Angulo del Codo', 'Angulo de Rodilla',
+      'Estabilidad del CoM', 'Velocidad de Muneca', 'Ancho de Base',
+    ];
+    grid.innerHTML = '';
+    for (var i = 0; i < count; i++) {
+      var url = API + '/graphs/' + taskId + '/' + i;
+      var label = labels[i] || ('Grafica ' + (i + 1));
+      var card = document.createElement('div');
+      card.className = 'graph-card';
+      card.innerHTML = '<img src="' + url + '" alt="' + label + '" loading="lazy" />'
+        + '<div class="graph-title">' + label + '</div>';
+      (function (imgUrl) {
+        card.querySelector('img').addEventListener('click', function () {
+          openLightbox(imgUrl);
+        });
+      })(url);
+      grid.appendChild(card);
+    }
+    $('graphs-section').style.display = 'block';
+  }
+
+  // ── Lightbox ──────────────────────────────────────────────────
+  function openLightbox(src) {
+    $('lightbox-img').src = src;
+    $('lightbox').classList.add('open');
+  }
+  $('lightbox').addEventListener('click', function () {
+    $('lightbox').classList.remove('open');
+    $('lightbox-img').src = '';
+  });
+</script>
+</body>
+</html>
