@@ -39,7 +39,7 @@ venv.bak/
 
 # Model weights
 *.pt
-yolov8n.pt
+yolov26m.pt
 
 # Project specific
 data/raw/

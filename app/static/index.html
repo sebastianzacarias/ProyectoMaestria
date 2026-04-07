@@ -307,6 +307,28 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  /**
+   * Parsea markdown básico (negritas y saltos de línea).
+   * @param {string} text
+   * @returns {string} HTML
+   */
+  function parseMarkdown(text) {
+    if (!text) return '';
+    // Escapar HTML básico para seguridad (aunque el LLM es confiable)
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Negritas: **texto** -> <strong>texto</strong>
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Saltos de línea: \n -> <br>
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
+  }
+
   // ── Estado Ollama ─────────────────────────────────────────────
   async function checkOllamaStatus() {
     try {
@@ -526,7 +548,7 @@
 
     // Texto del resumen
     var text = llm.summary || '(Sin resumen disponible)';
-    $('summary-box').textContent = text;
+    $('summary-box').innerHTML = parseMarkdown(text);
 
     // Metricas
     var shot = data.detected_shot || '--';
