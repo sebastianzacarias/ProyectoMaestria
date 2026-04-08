@@ -1,6 +1,6 @@
 # Tennis AI Analyzer 🎾
 
-Plataforma avanzada de análisis biomecánico para tenis basada en Inteligencia Artificial. Este sistema utiliza visión por computadora (**YOLO**) y modelos grandes de lenguaje (**Llama3.2**) para proporcionar un análisis detallado de la técnica del jugador, identificando golpes, midiendo ángulos articulares y ofreciendo recomendaciones profesionales de entrenamiento.
+Plataforma avanzada de análisis biomecánico para tenis basada en Inteligencia Artificial. Este sistema utiliza visión por computadora (**YOLOv8**) y modelos de visión-lenguaje (**qwen2-vl:8b**) para proporcionar un análisis detallado de la técnica del jugador, identificando golpes, midiendo ángulos articulares y ofreciendo recomendaciones profesionales de entrenamiento.
 
 ## 🚀 Funcionalidades Principales
 
@@ -10,7 +10,7 @@ Plataforma avanzada de análisis biomecánico para tenis basada en Inteligencia 
 *   **Persistencia de Trayectoria:** Lógica avanzada para mantener la última posición conocida de la pelota incluso en momentos de alta velocidad o desenfoque.
 
 ### 2. Análisis Biomecánico y Cinemático
-*   **Estimación de Pose:** Extracción de puntos clave (landmarks) del cuerpo humano utilizando **MediaPipe** Pose.
+*   **Estimación de Pose:** Extracción de puntos clave (landmarks) del cuerpo humano utilizando **YOLOv8-Pose** (modelo `yolo26s-pose.pt`).
 *   **Medición de Ángulos:** Cálculo dinámico de ángulos críticos como el codo (extensión/flexión) y la rodilla.
 *   **Estabilidad del Centro de Masa (CoM):** Evaluación del equilibrio del jugador durante la ejecución del golpe.
 *   **Métricas de Velocidad:** Medición de la velocidad de la muñeca y la raqueta para evaluar la potencia del swing.
@@ -32,8 +32,8 @@ Plataforma avanzada de análisis biomecánico para tenis basada en Inteligencia 
 ## 🛠 Herramientas y Tecnologías
 
 *   **Backend:** FastAPI (Python 3.10+)
-*   **Visión por Computadora:** Ultralytics YOLOv26m, MediaPipe Pose
-*   **IA Generativa:** Ollama (llama3.2:3b)
+*   **Visión por Computadora:** Ultralytics YOLOv8 (Detección de Objetos: `yolo26m.pt`, Pose-Estimation: `yolo26s-pose.pt`)
+*   **IA Generativa:** Ollama (qwen2-vl:8b)
 *   **Procesamiento de Datos:** NumPy, Pandas, SciPy (Filtro Savitzky-Golay para suavizado de señales)
 *   **Visualización:** Matplotlib, OpenCV
 *   **Frontend:** HTML5, CSS3, JavaScript (Vanilla)
@@ -41,9 +41,9 @@ Plataforma avanzada de análisis biomecánico para tenis basada en Inteligencia 
 ## 📋 Requisitos Previos
 
 1.  **Python 3.10 o superior**
-2.  **Ollama instalado** y ejecutando el modelo LLM:
+2.  **Ollama instalado** y ejecutando el modelo VLM:
     ```bash
-    ollama run llama3.2:3b
+    ollama run qwen2-vl:8b
     ```
 3.  **Dependencias del proyecto:**
     ```bash

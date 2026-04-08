@@ -485,16 +485,23 @@
 
   function setStatus(type, msg) {
     var badge = $('status-badge');
+    var bar = $('progress-bar');
     badge.className = 'status-badge';
     if (type === 'processing') {
       badge.classList.add('badge-processing');
       badge.textContent = 'Procesando';
+      bar.classList.add('indeterminate');
+      bar.style.width = '0%';
     } else if (type === 'done') {
       badge.classList.add('badge-done');
       badge.textContent = 'Completado';
+      bar.classList.remove('indeterminate');
+      bar.style.width = '100%';
     } else {
       badge.classList.add('badge-error');
       badge.textContent = 'Error';
+      bar.classList.remove('indeterminate');
+      bar.style.width = '0%';
     }
     $('progress-msg').textContent = msg;
   }

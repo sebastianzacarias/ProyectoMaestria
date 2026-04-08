@@ -16,7 +16,7 @@ import logging
 from collections import deque
 from typing import Dict, List, Optional, Tuple, Any
 from app.config import (
-    MODEL_PATH, POSE_MODEL_COMPLEXITY, POSE_MIN_DETECTION_CONFIDENCE,
+    MODEL_PATH, POSE_MODEL_PATH, POSE_MODEL_COMPLEXITY, POSE_MIN_DETECTION_CONFIDENCE,
     CONFIDENCE_THRESHOLD, BALL_PROXIMITY_THRESHOLD, MAIN_PLAYER_Y_THRESHOLD,
     POSE_HISTORY_BUFFER_SIZE, SMOOTHING_WINDOW_LENGTH, SMOOTHING_POLYORDER,
     METRICS_CONFIG, GRAPH_DPI, GRAPH_FIGSIZE, MOVEMENT_SIGNATURES,
@@ -54,40 +54,40 @@ class ObjectDetectionService:
         return results
 
 class PoseEstimationService:
-    def __init__(self):
-        """Servicio de estimación de pose usando MediaPipe."""
-        self.mp_pose = mp_pose
-        self.mp_drawing = mp_drawing
+    def __init__(self, model_name: str = POSE_MODEL_PATH):
+        """Servicio de estimación de pose usando YOLOv8-Pose."""
         try:
-            self.pose = self.mp_pose.Pose(
-                static_image_mode=False,
-                model_complexity=POSE_MODEL_COMPLEXITY,
-                enable_segmentation=False,
-                min_detection_confidence=POSE_MIN_DETECTION_CONFIDENCE
-            )
-            logger.info("MediaPipe Pose inicializado correctamente")
+            self.model = YOLO(model_name)
+            logger.info(f"Modelo YOLO Pose cargado: {model_name}")
         except Exception as e:
-            logger.error(f"Error al inicializar MediaPipe Pose: {e}")
+            logger.error(f"Error al cargar modelo YOLO Pose: {e}")
             raise
 
-    def __del__(self):
-        """Libera recursos de MediaPipe al destruir el objeto."""
-        if hasattr(self, 'pose') and self.pose:
-            self.pose.close()
-            logger.debug("Recursos de MediaPipe Pose liberados")
-    
     def estimate_pose(self, frame):
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.pose.process(frame_rgb)
-        return results
+        """
+        Realiza estimación de pose en el frame.
+        Retorna el primer objeto detectado con keypoints.
+        """
+        results = self.model(frame, verbose=False)
+        if results and len(results) > 0 and results[0].keypoints is not None:
+            return results[0]
+        return None
 
     def draw_pose(self, frame, results):
-        if results.pose_landmarks:
-            self.mp_drawing.draw_landmarks(
-                frame,
-                results.pose_landmarks,
-                self.mp_pose.POSE_CONNECTIONS
-            )
+        """Dibuja los keypoints y conexiones sobre el frame."""
+        if results and results.keypoints is not None:
+            # YOLOv8 plotting ya dibuja keypoints y conexiones
+            # Pero queremos mantener el control si es posible o usar su plotter
+            # results.plot() retorna un ndarray con el dibujo
+            # Por simplicidad y consistencia con el resto del código:
+            for person in results:
+                if person.keypoints is not None:
+                    # Usar el método plot nativo de YOLO para este frame
+                    annotated_frame = person.plot(labels=False, boxes=False)
+                    # Combinar con el frame original (solo los keypoints dibujados)
+                    # En realidad person.plot() dibuja sobre una copia
+                    # Vamos a copiarlo de vuelta al frame original
+                    np.copyto(frame, annotated_frame)
         return frame
 
     def calculate_angle(self, a, b, c):
@@ -425,11 +425,19 @@ class ShotClassificationService:
 
 class MetricsService:
     @staticmethod
-    def calculate_com(landmarks) -> np.ndarray:
-        """Estima el centro de masa (CoM) promediando cadera y hombros."""
+    def calculate_com(kpts: List[List[float]]) -> np.ndarray:
+        """
+        Estima el centro de masa (CoM) promediando cadera y hombros.
+        Format: kpts[idx] = [x, y] normalizados (YOLO COCO)
+        """
+        # COCO: 5: l_shoulder, 6: r_shoulder, 11: l_hip, 12: r_hip
         points = []
-        for idx in [11, 12, 23, 24]:
-            points.append([landmarks[idx].x, landmarks[idx].y])
+        for idx in [5, 6, 11, 12]:
+            if idx < len(kpts):
+                points.append([kpts[idx][0], kpts[idx][1]])
+        
+        if not points:
+            return np.array([0.5, 0.5])
         return np.mean(points, axis=0)
 
     @staticmethod
@@ -684,50 +692,68 @@ class VideoProcessor:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
     def _process_pose(self, pose_results, frame, pose_history: deque) -> Optional[Dict[str, Any]]:
-        """Procesa pose landmarks y calcula métricas biomecánicas."""
-        if not pose_results or not pose_results.pose_landmarks:
+        """Procesa pose landmarks y calcula métricas biomecánicas usando YOLOv8-Pose."""
+        if pose_results is None or pose_results.keypoints is None or len(pose_results.keypoints.data) == 0:
             return None
 
         self.pose_estimator.draw_pose(frame, pose_results)
-        landmarks = pose_results.pose_landmarks.landmark
+        
+        # YOLOv8-Pose usa formato COCO de 17 puntos
+        # 0: nose, 5: l_shoulder, 6: r_shoulder, 7: l_elbow, 8: r_elbow, 
+        # 9: l_wrist, 10: r_wrist, 11: l_hip, 12: r_hip, 
+        # 13: l_knee, 14: r_knee, 15: l_ankle, 16: r_ankle
+        
+        # En YOLOv8, pose_results.keypoints.x[0] y .y[0] son arrays de landmarks
+        # ya normalizados o en píxeles dependiendo de cómo se acceda.
+        # .x y .y suelen estar normalizados en ultralytics 8.0+ si se accede vía .x, .y
+        # pero para mayor seguridad usaremos .xyn
+        kpts = pose_results.keypoints.xyn[0].tolist() # Lista de [x, y] normalizados
+
+        if len(kpts) < 17:
+            return None
+
+        # Mapeo de landmarks YOLO (COCO) a los que necesitamos
+        # 0: NOSE, 6: R_SHOULDER, 8: R_ELBOW, 10: R_WRIST
+        # 5: L_SHOULDER, 7: L_ELBOW, 9: L_WRIST
+        # 12: R_HIP, 14: R_KNEE, 16: R_ANKLE
+        # 11: L_HIP, 13: L_KNEE, 15: L_ANKLE
+
+        def get_kp(idx):
+            return {"x": kpts[idx][0], "y": kpts[idx][1]}
 
         # Calcular ángulos
-        shoulder = [landmarks[12].x, landmarks[12].y]
-        elbow = [landmarks[14].x, landmarks[14].y]
-        wrist = [landmarks[16].x, landmarks[16].y]
+        shoulder = [kpts[6][0], kpts[6][1]]
+        elbow = [kpts[8][0], kpts[8][1]]
+        wrist = [kpts[10][0], kpts[10][1]]
         elbow_angle = self.pose_estimator.calculate_angle(shoulder, elbow, wrist)
 
-        hip = [landmarks[24].x, landmarks[24].y]
-        knee = [landmarks[26].x, landmarks[26].y]
-        ankle = [landmarks[28].x, landmarks[28].y]
+        hip = [kpts[12][0], kpts[12][1]]
+        knee = [kpts[14][0], kpts[14][1]]
+        ankle = [kpts[16][0], kpts[16][1]]
         knee_angle = self.pose_estimator.calculate_angle(hip, knee, ankle)
 
-        # Guardar en historial (buffer circular) - EXPANDIDO con más landmarks
+        # Guardar en historial (buffer circular)
         current_pose_dict = {
-            # Brazos
-            "RIGHT_SHOULDER": {"x": landmarks[12].x, "y": landmarks[12].y},
-            "RIGHT_ELBOW": {"x": landmarks[14].x, "y": landmarks[14].y},
-            "RIGHT_WRIST": {"x": landmarks[16].x, "y": landmarks[16].y},
-            "LEFT_SHOULDER": {"x": landmarks[11].x, "y": landmarks[11].y},
-            "LEFT_ELBOW": {"x": landmarks[13].x, "y": landmarks[13].y},
-            "LEFT_WRIST": {"x": landmarks[15].x, "y": landmarks[15].y},
-            # Torso
-            "NOSE": {"x": landmarks[0].x, "y": landmarks[0].y},
-            # Caderas
-            "RIGHT_HIP": {"x": landmarks[24].x, "y": landmarks[24].y},
-            "LEFT_HIP": {"x": landmarks[23].x, "y": landmarks[23].y},
-            # Piernas
-            "RIGHT_KNEE": {"x": landmarks[26].x, "y": landmarks[26].y},
-            "LEFT_KNEE": {"x": landmarks[25].x, "y": landmarks[25].y},
-            "RIGHT_ANKLE": {"x": landmarks[28].x, "y": landmarks[28].y},
-            "LEFT_ANKLE": {"x": landmarks[27].x, "y": landmarks[27].y},
+            "RIGHT_SHOULDER": get_kp(6),
+            "RIGHT_ELBOW": get_kp(8),
+            "RIGHT_WRIST": get_kp(10),
+            "LEFT_SHOULDER": get_kp(5),
+            "LEFT_ELBOW": get_kp(7),
+            "LEFT_WRIST": get_kp(9),
+            "NOSE": get_kp(0),
+            "RIGHT_HIP": get_kp(12),
+            "LEFT_HIP": get_kp(11),
+            "RIGHT_KNEE": get_kp(14),
+            "LEFT_KNEE": get_kp(13),
+            "RIGHT_ANKLE": get_kp(16),
+            "LEFT_ANKLE": get_kp(15),
         }
         pose_history.append(current_pose_dict)
 
         # Métricas avanzadas
-        com = self.metrics.calculate_com(landmarks)
-        left_ankle = [landmarks[27].x, landmarks[27].y]
-        right_ankle = [landmarks[28].x, landmarks[28].y]
+        com = self.metrics.calculate_com(kpts) # MetricsService necesita actualizarse si usa landmarks.landmark
+        left_ankle = [kpts[15][0], kpts[15][1]]
+        right_ankle = [kpts[16][0], kpts[16][1]]
         base_width = np.linalg.norm(np.array(left_ankle) - np.array(right_ankle))
 
         pose_metrics = {
@@ -735,8 +761,8 @@ class VideoProcessor:
             "knee_angle": float(knee_angle),
             "com_x": float(com[0]),
             "com_y": float(com[1]),
-            "wrist_x": float(landmarks[16].x),
-            "wrist_y": float(landmarks[16].y),
+            "wrist_x": float(kpts[10][0]),
+            "wrist_y": float(kpts[10][1]),
             "base_width": float(base_width),
             "com_stability": 0.0,
             "wrist_speed": 0.0
