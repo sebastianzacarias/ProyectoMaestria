@@ -48,7 +48,6 @@ data/graphs/
 *.mp4
 *.avi
 *.mov
-*.png
 outputs/
 charts/
 temp/
