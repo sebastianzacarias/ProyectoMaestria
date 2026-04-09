@@ -3,8 +3,8 @@ Configuración centralizada para la aplicación de análisis de tenis.
 """
 
 # Configuración de Modelos
-MODEL_PATH = "yolo26m.pt"
-POSE_MODEL_PATH = "yolo26s-pose.pt"
+MODEL_PATH = "yolo26x.pt"
+POSE_MODEL_PATH = "yolo26x-pose.pt"
 POSE_MODEL_COMPLEXITY = 1
 POSE_MIN_DETECTION_CONFIDENCE = 0.5
 
