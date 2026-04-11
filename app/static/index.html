@@ -259,11 +259,19 @@
         </div>
       </div>
 
-      <!-- Métricas + golpe -->
-      <div class="card">
-        <h2>📊 Métricas del análisis</h2>
-        <div class="metrics-grid" id="metrics-grid"></div>
+    <!-- Métricas + golpe -->
+    <div class="card">
+      <h2>📊 Métricas del análisis</h2>
+      <div class="metrics-grid" id="metrics-grid"></div>
+      
+      <!-- Tiempo Total -->
+      <div id="total-time-card" style="display: none; margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px;">
+        <div class="metric-chip" style="background: var(--dark); color: #fff;">
+          <div class="val" id="total-time-val" style="color: #fff;">0.0s</div>
+          <div class="lbl" style="color: #aaa;">Tiempo total del análisis</div>
+        </div>
       </div>
+    </div>
 
       <!-- Resumen LLM (full width) -->
       <div class="card full-width">
@@ -394,9 +402,12 @@
   });
 
   // ── Upload & poll ─────────────────────────────────────────────
+  let analysisStartTime = null;
+
   $('upload-btn').addEventListener('click', async function () {
     if (!selectedFile) return;
 
+    analysisStartTime = Date.now();
     $('upload-btn').disabled = true;
     $('progress-section').style.display = 'block';
     $('results-section').style.display = 'none';
@@ -470,7 +481,10 @@
       }
 
       if (data.status === 'completed') {
+        const totalDuration = ((Date.now() - analysisStartTime) / 1000).toFixed(1);
         setStatus('done', 'Analisis completado');
+        $('total-time-val').textContent = totalDuration + 's';
+        $('total-time-card').style.display = 'block';
         await showResults(taskId);
         return;
       }
