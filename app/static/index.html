@@ -575,15 +575,15 @@
     var shot = data.detected_shot || '--';
     var elbow = metrics.avg_elbow_angle != null ? metrics.avg_elbow_angle.toFixed(1) : '--';
     var knee  = metrics.avg_knee_angle != null ? metrics.avg_knee_angle.toFixed(1) : '--';
-    var frames = metrics.frames_with_pose != null ? metrics.frames_with_pose : '--';
+    var posePct = metrics.main_player_pose_pct != null ? metrics.main_player_pose_pct.toFixed(0) + '%' : '--';
     var genTime = llm.generation_time ? llm.generation_time.toFixed(1) + 's' : '--';
 
     var chips = [
-      { val: shot,           lbl: 'Golpe detectado' },
+      { val: shot,           lbl: 'Golpe Principal detectado' },
       { val: elbow + '\u00B0',   lbl: 'Angulo de codo (prom.)' },
       { val: knee + '\u00B0',    lbl: 'Angulo de rodilla (prom.)' },
-      { val: frames,         lbl: 'Frames con pose' },
-      { val: genTime,        lbl: 'Tiempo de analisis IA' },
+      { val: posePct,        lbl: '% Frames con Detección de Pose' },
+      { val: genTime,        lbl: 'Tiempo de analisis LLM' },
     ];
 
     var html = '';

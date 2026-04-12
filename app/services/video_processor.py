@@ -904,6 +904,9 @@ class VideoProcessor:
 
         # Preparar métricas finales con validación de NaN
         frames_with_pose = [f for f in frames_data if f["pose_detected"]]
+        # Filtrar frames donde se detectó pose específicamente para el JUGADOR PRINCIPAL
+        frames_with_main_player_pose = [f for f in frames_data if f["pose_detected"] and f.get("prob_jugador", 0.0) > 0]
+        
         avg_elbow = self.metrics.safe_float(
             np.mean([f["elbow_angle"] for f in frames_with_pose]) if frames_with_pose else 0.0
         )
@@ -913,11 +916,16 @@ class VideoProcessor:
 
         logger.info(f"Análisis completado - task_id: {task_id}, golpe detectado: {final_shot}")
 
-        # Generar resumen con LLM
+        # Calcular porcentaje de frames con pose del jugador principal
+        total_f = len(frames_data)
+        pose_percentage = (len(frames_with_main_player_pose) / total_f * 100) if total_f > 0 else 0.0
+
+        # Preparar métricas finales con validación de NaN
         metrics_dict = {
             "avg_elbow_angle": avg_elbow,
             "avg_knee_angle": avg_knee,
-            "frames_with_pose": len(frames_with_pose)
+            "frames_with_pose": len(frames_with_pose),
+            "main_player_pose_pct": pose_percentage
         }
 
         logger.info("Generando resumen interpretativo con LLM...")
