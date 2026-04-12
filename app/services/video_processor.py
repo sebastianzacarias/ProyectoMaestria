@@ -826,6 +826,11 @@ class VideoProcessor:
         frame_count = 0
         pose_history = deque(maxlen=POSE_HISTORY_BUFFER_SIZE)
         
+        total_frames_with_pose = 0
+        total_frames_with_main_player_pose = 0
+        sum_elbow = 0.0
+        sum_knee = 0.0
+
         try:
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -882,6 +887,14 @@ class VideoProcessor:
                             cv2.putText(frame, f"{movement} {move_prob:.2f}", (int(x1), int(y2) + 20),
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
+
+                    # Incrementar acumuladores
+                    total_frames_with_pose += 1
+                    sum_elbow += current_frame_metrics.get("elbow_angle", 0.0)
+                    sum_knee += current_frame_metrics.get("knee_angle", 0.0)
+                    if current_frame_metrics.get("prob_jugador", 0.0) > 0:
+                        total_frames_with_main_player_pose += 1
+
                 out.write(frame)
                 frames_data.append(current_frame_metrics)
                 frame_count += 1
@@ -903,28 +916,20 @@ class VideoProcessor:
         individual_graphs = self.metrics.generate_individual_graphs(frames_data, task_id, graphs_dir)
 
         # Preparar métricas finales con validación de NaN
-        frames_with_pose = [f for f in frames_data if f["pose_detected"]]
-        # Filtrar frames donde se detectó pose específicamente para el JUGADOR PRINCIPAL
-        frames_with_main_player_pose = [f for f in frames_data if f["pose_detected"] and f.get("prob_jugador", 0.0) > 0]
-        
-        avg_elbow = self.metrics.safe_float(
-            np.mean([f["elbow_angle"] for f in frames_with_pose]) if frames_with_pose else 0.0
-        )
-        avg_knee = self.metrics.safe_float(
-            np.mean([f["knee_angle"] for f in frames_with_pose]) if frames_with_pose else 0.0
-        )
+        avg_elbow = self.metrics.safe_float(sum_elbow / total_frames_with_pose if total_frames_with_pose > 0 else 0.0)
+        avg_knee = self.metrics.safe_float(sum_knee / total_frames_with_pose if total_frames_with_pose > 0 else 0.0)
 
         logger.info(f"Análisis completado - task_id: {task_id}, golpe detectado: {final_shot}")
 
         # Calcular porcentaje de frames con pose del jugador principal
         total_f = len(frames_data)
-        pose_percentage = (len(frames_with_main_player_pose) / total_f * 100) if total_f > 0 else 0.0
+        pose_percentage = (total_frames_with_main_player_pose* 100/ total_f ) if total_f > 0 else 0.0
 
         # Preparar métricas finales con validación de NaN
         metrics_dict = {
             "avg_elbow_angle": avg_elbow,
             "avg_knee_angle": avg_knee,
-            "frames_with_pose": len(frames_with_pose),
+            "frames_with_pose": total_frames_with_pose,
             "main_player_pose_pct": pose_percentage
         }
 
